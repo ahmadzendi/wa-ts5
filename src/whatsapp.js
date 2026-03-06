@@ -3,12 +3,20 @@ import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import { makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import { fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { DisconnectReason } from '@whiskeysockets/baileys';
-import pino from 'pino';
 import QRCode from 'qrcode';
 import { config } from './config.js';
 import { delay, messageQueue } from './utils.js';
 
-const logger = pino({ level: 'silent' });
+const logger = {
+  fatal: () => {},
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+  trace: () => {},
+  child: () => logger
+};
+
 const EPHEMERAL = 86400;
 const MAX_RETRY = 3;
 const RETRY_DELAY = 1500;
@@ -96,13 +104,15 @@ export async function connectWhatsApp() {
     generateHighQualityLinkPreview: false,
     syncFullHistory: false,
     markOnlineOnConnect: false,
+    shouldIgnoreJid: jid => !jid.endsWith(config.waTargetJid),
+    getMessage: async () => undefined,
   });
 
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n=== SCAN QR CODE ===\n');
+      console.log('\n=== SCAN QR CODE ===');
       try {
         const qrText = await QRCode.toString(qr, { type: 'terminal', small: true });
         console.log(qrText);
@@ -110,14 +120,13 @@ export async function connectWhatsApp() {
         console.log('QR:', qr);
       }
       const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`;
-      console.log('\nBuka link ini di browser lalu scan:');
-      console.log(qrUrl);
-      console.log('\n====================\n');
+      console.log('Buka:', qrUrl);
+      console.log('===================\n');
     }
 
     if (connection === 'open') {
       isConnected = true;
-      console.log('WhatsApp terhubung!');
+      console.log('WhatsApp terhubung');
       if (!messageQueue.isEmpty()) {
         setTimeout(processQueue, 1000);
       }
@@ -148,8 +157,6 @@ export async function connectWhatsApp() {
       const text =
         msg.message?.conversation ||
         msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
         '';
 
       if (!text) continue;
@@ -159,21 +166,14 @@ export async function connectWhatsApp() {
 
       if (trimmed === '/groupid') {
         sock.sendMessage(from, { text: `ID:\n${from}` }, { ephemeralExpiration: EPHEMERAL });
-        continue;
-      }
-
-      if (trimmed.startsWith('/atur ')) {
+      } else if (trimmed.startsWith('/atur ')) {
         customMessage = trimmed.slice(6).trim();
-        sock.sendMessage(from, { text: `Pesan custom diubah:\n"${customMessage}"` }, { ephemeralExpiration: EPHEMERAL });
-      }
-
-      if (trimmed === '/resetpesan') {
+        sock.sendMessage(from, { text: `Pesan diubah` }, { ephemeralExpiration: EPHEMERAL });
+      } else if (trimmed === '/resetpesan') {
         customMessage = '';
-        sock.sendMessage(from, { text: 'Pesan custom dihapus' }, { ephemeralExpiration: EPHEMERAL });
-      }
-
-      if (trimmed === '/status') {
-        const status = `Status Bot:\nWhatsApp: ${isConnected ? 'Terhubung' : 'Terputus'}\nQueue: ${messageQueue.size()} pesan`;
+        sock.sendMessage(from, { text: 'Pesan dihapus' }, { ephemeralExpiration: EPHEMERAL });
+      } else if (trimmed === '/status') {
+        const status = `WA: ${isConnected ? 'OK' : 'OFF'}\nQueue: ${messageQueue.size()}`;
         sock.sendMessage(from, { text: status }, { ephemeralExpiration: EPHEMERAL });
       }
     }
