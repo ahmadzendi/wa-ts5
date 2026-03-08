@@ -14,10 +14,10 @@ export function isWeekendQuiet() {
   const wd = wib.getUTCDay();
   const h = wib.getUTCHours();
   const m = wib.getUTCMinutes();
-  if (wd === 6) return h > 5 || (h === 5 && m >= 2);
+  if (wd === 6) return h > 4 || (h === 4 && m >= 2);
   if (wd === 0) return true;
-  if (wd === 1) return h < 5 || (h === 5 && m <= 58);
-  return h === 5 && m >= 2 && m <= 58;
+  if (wd === 1) return h < 4 || (h === 4 && m <= 58);
+  return h === 4 && m >= 2 && m <= 58;
 }
 
 export function formatTanggalIndo(updatedAtStr) {
@@ -109,3 +109,4 @@ class MessageQueue {
 }
 
 export const messageQueue = new MessageQueue();
+
