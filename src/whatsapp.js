@@ -27,9 +27,15 @@ let sock = null;
 let isConnected = false;
 let customMessage = '';
 let queueProcessing = false;
+let queueInterval = null;
 
-export function getCustomMessage() { return customMessage; }
-export function isWaConnected() { return isConnected; }
+export function getCustomMessage() {
+  return customMessage;
+}
+
+export function isWaConnected() {
+  return isConnected;
+}
 
 export async function sendWhatsApp(text) {
   for (let i = 1; i <= MAX_RETRY; i++) {
@@ -46,6 +52,7 @@ export async function sendWhatsApp(text) {
       await sock.sendMessage(config.waTargetJid, { text }, { ephemeralExpiration: EPHEMERAL });
       return true;
     } catch (e) {
+      console.error('Send error:', e.message);
       if (i < MAX_RETRY) {
         await delay(RETRY_DELAY);
       }
@@ -82,6 +89,19 @@ async function processQueue() {
 }
 
 export async function connectWhatsApp() {
+  if (queueInterval) {
+    clearInterval(queueInterval);
+    queueInterval = null;
+  }
+
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners('messages.upsert');
+      sock.ev.removeAllListeners('connection.update');
+      sock.ev.removeAllListeners('creds.update');
+    } catch {}
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
 
   let version;
@@ -104,8 +124,8 @@ export async function connectWhatsApp() {
     generateHighQualityLinkPreview: false,
     syncFullHistory: false,
     markOnlineOnConnect: false,
-    shouldIgnoreJid: jid => !jid.endsWith(config.waTargetJid),
-    getMessage: async () => undefined,
+    shouldIgnoreJid: jid => jid === 'status@broadcast',
+    getMessage: async () => ({ conversation: '' }),
   });
 
   sock.ev.on('connection.update', async (update) => {
@@ -134,11 +154,14 @@ export async function connectWhatsApp() {
 
     if (connection === 'close') {
       isConnected = false;
+      console.log('WhatsApp terputus');
       const statusCode = lastDisconnect?.error?.output?.statusCode;
 
       if (statusCode === DisconnectReason.loggedOut || statusCode === 405) {
         const fs = await import('fs');
-        try { fs.rmSync('./auth_info', { recursive: true, force: true }); } catch {}
+        try {
+          fs.rmSync('./auth_info', { recursive: true, force: true });
+        } catch {}
         setTimeout(connectWhatsApp, 3000);
         return;
       }
@@ -149,37 +172,48 @@ export async function connectWhatsApp() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('messages.upsert', ({ messages, type }) => {
-    if (type !== 'notify') return;
-    for (const msg of messages) {
-      if (msg.key.fromMe) continue;
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    try {
+      if (type !== 'notify') return;
 
-      const text =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        '';
+      for (const msg of messages) {
+        if (msg.key.fromMe) continue;
 
-      if (!text) continue;
+        const text =
+          msg.message?.conversation ||
+          msg.message?.extendedTextMessage?.text ||
+          '';
 
-      const from = msg.key.remoteJid;
-      const trimmed = text.trim();
+        if (!text) continue;
 
-      if (trimmed === '/groupid') {
-        sock.sendMessage(from, { text: `ID:\n${from}` }, { ephemeralExpiration: EPHEMERAL });
-      } else if (trimmed.startsWith('/atur ')) {
-        customMessage = trimmed.slice(6).trim();
-        sock.sendMessage(from, { text: `Pesan diubah` }, { ephemeralExpiration: EPHEMERAL });
-      } else if (trimmed === '/resetpesan') {
-        customMessage = '';
-        sock.sendMessage(from, { text: 'Pesan dihapus' }, { ephemeralExpiration: EPHEMERAL });
-      } else if (trimmed === '/status') {
-        const status = `WA: ${isConnected ? 'OK' : 'OFF'}\nQueue: ${messageQueue.size()}`;
-        sock.sendMessage(from, { text: status }, { ephemeralExpiration: EPHEMERAL });
+        const from = msg.key.remoteJid;
+        const trimmed = text.trim();
+
+        console.log(`[MSG] ${from}: ${trimmed}`);
+
+        if (trimmed === '/groupid') {
+          await sock.sendMessage(from, { text: `ID:\n${from}` }, { ephemeralExpiration: EPHEMERAL });
+          console.log('[CMD] /groupid');
+        } else if (trimmed.startsWith('/atur ')) {
+          customMessage = trimmed.slice(6).trim();
+          await sock.sendMessage(from, { text: 'Pesan diubah' }, { ephemeralExpiration: EPHEMERAL });
+          console.log('[CMD] /atur:', customMessage);
+        } else if (trimmed === '/resetpesan') {
+          customMessage = '';
+          await sock.sendMessage(from, { text: 'Pesan dihapus' }, { ephemeralExpiration: EPHEMERAL });
+          console.log('[CMD] /resetpesan');
+        } else if (trimmed === '/status') {
+          const status = `WA: ${isConnected ? 'OK' : 'OFF'}\nQueue: ${messageQueue.size()}`;
+          await sock.sendMessage(from, { text: status }, { ephemeralExpiration: EPHEMERAL });
+          console.log('[CMD] /status');
+        }
       }
+    } catch (err) {
+      console.error('[MSG ERROR]', err.message);
     }
   });
 
-  setInterval(() => {
+  queueInterval = setInterval(() => {
     if (isConnected && !messageQueue.isEmpty()) {
       processQueue();
     }
