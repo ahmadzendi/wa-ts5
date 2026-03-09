@@ -1,8 +1,8 @@
 import { connectWhatsApp, sendWhatsApp, getCustomMessage, isWaConnected } from './whatsapp.js';
-import { connectTreasury, setOnPriceUpdate, isTreasuryConnected } from './treasury-ws.js';
+import { connectTreasury, setOnPriceUpdate, disconnectTreasury } from './treasury-ws.js';
 import { startMarketData, getXauUsd, getUsdIdr, stopMarketData, fetchOnce } from './market-data.js';
 import { buildMessage } from './message-builder.js';
-import { isWeekendQuiet, messageQueue } from './utils.js';
+import { isWeekendQuiet } from './utils.js';
 
 let lastBuyPrice = null;
 let lastUpdatedAt = null;
@@ -48,20 +48,29 @@ async function start() {
     await connectWhatsApp();
 
     await new Promise((resolve) => {
-      if (isWaConnected()) { resolve(); return; }
+      if (isWaConnected()) {
+        resolve();
+        return;
+      }
 
       let resolved = false;
 
       const check = setInterval(() => {
         if (isWaConnected()) {
           clearInterval(check);
-          if (!resolved) { resolved = true; resolve(); }
+          if (!resolved) {
+            resolved = true;
+            resolve();
+          }
         }
       }, 200);
 
       setTimeout(() => {
         clearInterval(check);
-        if (!resolved) { resolved = true; resolve(); }
+        if (!resolved) {
+          resolved = true;
+          resolve();
+        }
       }, 60000);
     });
 
@@ -76,12 +85,19 @@ async function start() {
   }
 }
 
-process.on('SIGINT', async () => {
+process.on('SIGINT', () => {
   console.log('\nBot dihentikan.');
   stopMarketData();
-  const { disconnectTreasury } = await import('./treasury-ws.js');
   disconnectTreasury();
   setTimeout(() => process.exit(0), 2000);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught:', err.message);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled:', err);
 });
 
 start();
