@@ -16,7 +16,7 @@ export function buildMessage({ newBuy, newSell, oldBuy, updatedAt, xauUsd, usdId
     '*', status, '*\n',
     '*', tanggal, ' WIB*\n\n',
     'Beli: ', formatIdNumber(newBuy), ' Jual: ', formatIdNumber(newSell), ' *(', spreadPct, ')*\n',
-    '🏆XAU: ', xauStr, '    | 💵USD: ', usdStr, '\n\n' // Posisi tepat di bawah harga
+    '🏆XAU: *', xauStr, '* | 💵USD: *', usdStr, '*\n\n'
   ];
 
   for (const [nominal, modal] of config.nominals) {
